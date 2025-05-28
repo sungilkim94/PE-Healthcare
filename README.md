@@ -13,3 +13,6 @@ A standard workflow for this would be
 - Commit your changes to your branch<br> `git add <filenames>` or `git add -A` for all files
 - Push your local branch up to github <br> `git push`
 - Then submit your [pull request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request) on github
+
+## Contributing to Latex Files
+To ensure users can work with the Latex files in the interface of their choice (overleaf, VSCode, etc.) the master .tex documents are kept in this repository. Please utlize editing on clones and submit pull requests to edit the master .tex documents.
