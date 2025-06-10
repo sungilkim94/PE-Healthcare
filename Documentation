@@ -1,0 +1,302 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsfonts}
+\usepackage{mathrsfs}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage[space]{grffile}
+\usepackage{bbm}
+\usepackage{booktabs}
+\usepackage{amssymb}
+\usepackage{optidef}
+\usepackage{indentfirst}
+\usepackage{fancyhdr}
+\usepackage{tikz}
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+    \node[shape=circle, draw, inner sep=1pt, 
+        minimum height=12pt] (char) {\vphantom{1g}#1};}}
+
+\pagestyle{fancy}
+\fancyhf{}
+
+\cfoot{\thepage}
+
+
+\begin{document}
+
+\title{Documentation for PE - Healthcare Project}
+\author{Sungil Kim} \\ 
+\date{\today}
+\maketitle
+
+\section{Introduction}
+
+This document provides a structured overview of the data, code, and output associated with the joint research project by Ryan McDevitt, Ambar La Forgia, Riley League, Kelly Yang, and Sungil Kim.
+
+The following sections describe the logic behind each step, the code required to run the process, the necessary input data, and the structure of output files. We also detail the downstream code used to generate the final tables and figures for the project.
+
+\section{Data Processing}
+
+\subsection{Data Integration and Linking}
+
+An essential step in constructing our final analytic dataset involved linking hospitals across multiple data sources, including administrative records (CMS Cost Reports, AHA Annual Survey, QualityNet) and commercial investment datasets (PitchBook, Levin, and others). Two primary processes were used: identifier-based merging and fuzzy string matching.
+
+\begin{itemize}
+\item \textbf{Hospital-Level Linking:} Hospitals were matched across CMS, AHA, and QualityNet using unique identifiers such as the Medicare Provider Number. These identifiers allowed for reliable longitudinal tracking even as hospitals changed ownership or system affiliation over time. Additional logic was applied to capture transitions in ownership status and system membership.
+
+\item \textbf{Fuzzy Matching for Hospital Names:} To link hospital targets reported in PitchBook and Levin to hospitals in the AHA database, we used fuzzy matching techniques—specifically, token set ratios from the \texttt{fuzzywuzzy} Python package. This was necessary because company names in investment databases often deviate from official hospital names due to abbreviations, formatting inconsistencies, or typographical errors.
+
+\item \textbf{Targeted Subsampling and Manual Review:} Given substantial noise in the full PitchBook dataset (e.g., non-hospital entities like outpatient clinics, imaging centers, dental chains), the team applied keyword filters and industry classification codes to trim the dataset to more hospital-relevant entries. We initially focused on the "Hospitals/Inpatient Services" category and then considered expanding to the broader "Clinics/Outpatient Services" group after assessing match quality.
+
+\item \textbf{Keywording and Natural Language Processing:} Due to the industry code identifiers in PitchBook not being precise enough for our purposes we had to trim down non-hospital related entries before undergoing manual review. This was done in the case of the "Clinic/Outpatient Services" subsample by first running company name, deal description, and financing note information from PitchBook through spaCy's Named Entity Recognizer (an open source natural language processing plug in for Python) and keeping only named entities classified as "ORG". Next inclusive keyword filtering was used on these named entities to keep hospital related entries. Finally a round of exclusive filtering was used to create the final sample for matching and review. Because the "Hospital/Inpatient Services" subsample was initially much smaller only keyword filtering and no named entity recognition was used.
+
+\item \textbf{Collaborative Refinement:} Manual verification was used to review uncertain matches and detect misclassifications. We reviewed fuzzy match results and contributed a consolidated manual verification file. The team continues to refine matching logic—evaluating trade-offs between sample size and data quality—especially in light of known classification issues in the PitchBook data. We flagged deals with partial ownership or service involvement for future clarification.
+
+\item \textbf{Iterative Process and Documentation:} The linking effort has been an iterative process. Multiple rounds of matching, filtering, and review have been documented in shared folders and discussed in team meetings. Keyword refinement and validation using both matched and unmatched samples remain ongoing to improve precision.
+\end{itemize}
+
+This combined process of fuzzy matching, identifier-based merging, and manual review has enabled robust linking of hospital-level targets across administrative and investor-level datasets, ensuring accurate classification of ownership transitions for downstream analysis.
+
+%%% BELOW HERE ARE MY PREVIOUS DOCUMENT. FEEL FREE TO ERASE THEM AFTER YOU SEE HOW IT's STRUCTURED.
+
+\subsection{Textual Data}
+We conduct textual analysis on news transcripts from Thomson Reuters Machine Readable News (MRN) (from 1996 to 2020). The final outputs are daily topic frequency and sentiment measures, which are the word-count-weighted average article level measures. Later these daily measures will be equally weighted in the construction of weekly and monthly measures.\\
+
+To run the textual data processing, refer to codes as follows (well commented, also can be found on Project's Github repository). Please execute them in the order as follows:
+\begin{enumerate}
+	\item[--] \textbf{run\_raw\_info.sh}\\
+	Generate monthly csv info files (raw info files). See raw\_info.py for details (this apply to all .sh files hereafter).
+	\item[--] \textbf{run\_oil\_article\_selection.sh}\\
+	Select the oil articles and generate the oil-related monthly raw info files.
+	\item[--] \textbf{run\_dtm.sh}\\
+	Prepare the dtm files.
+	\item[--] \textbf{run\_ngram.sh}\\
+	Prepare ngrams for entropy calculation. Please refer to footnote in the paper for the method we are using here.
+	\item[--] \textbf{run\_entropy.sh}\\
+	Calculate the entropy.
+	\item[--] \textbf{run\_sent.sh}\\
+	Calculate the sentiments, these are article level sentiments, will be aggregated using word-count weighted average in later step.
+	\item[--] \textbf{run\_total.sh}\\
+	Count the total number of words in each article after cleaning.
+	\item[--] \textbf{run\_topic.sh}\\
+	Calculates the allocation of the topics for each article.
+	\item[--] \textbf{run\_info.sh}\\
+	Combine all the article measures and change the time to NY to create final info files.
+	\item[--] \textbf{Concatenate all the files at /work/sungilkim/Energy/DataProcessing/info for the next step}
+	\item[--] \textbf{date\_fixed\_measures.py}\\
+	Fix the dates on info files based on the oil price eastern closing time.
+	\item[--] \textbf{agg\_daily.py}\\
+	Aggregate from transcripts to daily measure (we take weighted average of each measure where the weights are word counts of a transcript).
+\end{enumerate}
+
+Please infer the folder structure for intermediate outputs from the codes above.
+
+\subsection{Baseline Data}
+\subsubsection{Price Data}
+There are several steps to compiling the price data due to the different sources from which we retrieve the underlying data. Run the following scripts in order. Note that they can all be found in the data directory.
+
+\begin{enumerate}
+	\item[--] \textbf{update\_bloomberg\_v2.do}\\
+	This script reads in daily Bloomberg data saved in data/bloomberg/bloomberg\_raw.d.xlsx and output two excel files with weekly data for price and physical regressions, following the two time conventions used in the project. The weekly data are saved in data/bloomberg/bloomberg \_prices.fri\_v2.xls and data/bloomberg/bloomberg\_physical.tue\_v2.xls. Before running this script, make sure you update the daily raw data excel file to cover the desired time period. 
+	
+	\item[--]
+	\textbf{update\_fame.inp}\\
+	Pulls daily data from internal Fed databases, and outputs both the daily raw data and the converted weekly series for both time conventions. See .inp for more information as it should be commented well. The output can be found in data/fame/.
+	
+	\item[--]
+	\textbf{update\_fame.do}\\
+	Merges independent and dependent variables per time convention exported in the file above such that per timing convention all fame data can be found in a single .csv. 
+	
+	\item[--]
+	\textbf{update\_futures\_rea\_v6.do}\\
+	Computes oil futures prices returns for both timing conventions (code includes details on how we fill-in missing observations). This script also includes the calculation of the World Industrial Production Index variable we use in our models.\\
+	
+	\item[--]
+	\textbf{update\_text\_measures.do}
+	Converts daily text measures generated in previous steps into weekly observations of 4-week averages for both timing conventions. It outputs this data in
+ data/text\_measures/ text\_measures\_prices.fri.xlsx and text\_measures\_physical.tue.xlsx
+	
+	\item[--]
+	\textbf{merge\_data\_v4.do}\\
+	Merges all price data in one .dta file, and similarly merges all physical data retrieved thus dar in one .dta file. 
+	
+	\item[--]
+	\textbf{update\_summary\_statistics.do}\\
+	Computes and exports descriptive statistics for series that feature in the models. 
+\end{enumerate}
+
+Next, we move to another directory, regressions, and run \textbf{transform\_data\_v14.do}. This script applies the relevant transformations to the weekly series retrieved above for each time convention. The output can be found in data/clean\_data/.
+
+\subsubsection{Physical Data}
+Physical data is processed in tandem with price data. The code is setup in a way to output and accommodate both timing conventions in the same scripts due to the fact that they use the same underlying data. Therefore, running the code in section 2.2.1 will update both price and physical data. See section 2.2.1 above for more details.
+
+\subsubsection{Risk (Volatility) Data}
+Next, we move to forwardSelection and run \textbf{forwardSelection\_risk\_premia\_data\_v14.do}. This script transforms the relevant risk premia series for each timing convention and merges them with the datasets of all other variables.
+
+\subsubsection{SDF Data}
+SDF series are calculated by authos. Please refer to section 2.2 in the paper for a comprehensive description. We follow the method of Hansen and Jagannathan 1991 and calculate the sdf series using daily returns on the Credit-Suisse WTI futures total return index, the total return of the S\&P 500 index, a U.S. Treasury total return index from Bloomberg (which roughly tracks 10-year bonds), the total return from investing in 6-month U.S. T-bills, and the total return of the MSCI World Energy Sector index. \\
+
+There are three sdf series, the first is used in In-Sample analysis, and the others are catered to Out-of-Sample analysis (no forward looking during calculation). These 3 series are:
+\begin{enumerate}
+	\item[--] \textbf{sdf\_fullsample}\\
+	SDF calculated on the full sample data.
+	\item[--] \textbf{sdf\_765days}\\
+	SDF calculated on the data from past 765 days (3 yrs).
+	\item[--] \textbf{sdf\_growing}\\
+	SDF calculated on all the previous data (with a minimal window as 765 days)
+\end{enumerate}
+
+\section{In Sample Analysis}
+This section describe the logistics of the In-Sample analysis, including the data, the code and subsequent plotting or interpretation procedures. Similar files and descriptions can be found on Project's Github repository. 
+\subsection{Data for In Sample Analysis}
+The data for In Sample analysis are listed here. They are saved in the shareddir on the research grid (\textbf{energy\_drivers/2020-11-16/data}).
+\begin{enumerate}
+	\item[--] \textbf{transformed\_data\_prices\_v14.dta} \\
+	LHS and RHS Series for price variables, obtained from data processing section and in sample section.
+	\item[--] \textbf{transformed\_data\_physical\_v14.dta} \\
+	LHS and RHS Series for physical variables, obtained from data processing section and in sample section.
+\end{enumerate}
+These are the only data required for in-sample analysis. The construction process is described in $Section\ 2.\ Data\ Processing$.
+
+\subsection{Forward Selection}
+The Forward Selection model leverage the forward selection method to select the top 2 or 7 predictors for a LHS variable. The lagged LHS variable is a predetermined predictor in this practice. The forward selection method starts with OLS regression on each candidate variable, and chooses the one with the highest $R^2$, then proceed by performing the same algorithm using the residual from the regression on selected variables as LHS, until there are 2 or 7 chosen variables. We then examine the performance of the selected specifications using the whole sample and report the statistics from the regressions.
+
+To run the analysis, refer to following codes:
+\begin{enumerate}
+	\item[--] \textbf{stepwiseForwardSelection.R}
+\end{enumerate}
+The outputs consist of 16 files (8 LHS, 2 prediction manner (4wk, 8wk)), each saves the regression coefficients, t-stats, P-values, etc. The orders of the variables from top to bottom in the words files indicate the orders of being selected in the corresponding forward selection process.
+
+\subsection{Monte Carlo Simulations}
+Please refer to online appendix in the paper for detailed review of the reason and process of this analysis. We employ Monte Carlo simulation to address small sample bias due to the forward selection method, and the overlapping issues in the forward selection model.
+
+To run the analysis, refer to following codes:
+\begin{enumerate}
+	\item[--] \textbf{Monte\_Carlo\_forwardSelection.R}
+\end{enumerate}
+
+The outputs consist of several files:
+\begin{enumerate}
+	\item[--] \textbf{Fig4.pdf}\\
+	Figure 4 in the paper. Selected simulated distribution of $R^2$ for 8wk Oil Futures Return and Volatility.
+	\item[--] \textbf{Fig5.pdf}\\
+	Figure 4 in the paper. Selected simulated distribution of $t-stats$ for forward selected variables with LHS as 8wk Oil Futures Return or Volatility.
+	\item[--] \textbf{Word Files (4 in total)}\\
+	2 files for aggregated forward selection regression results (each for 4 or 8 week prediction period); other 2 files for the AR(1) regression for error term distribution in Monte Carlo simulation (See online appendix for details)
+	\item[--] \textbf{PDF Files (2 in total)}\\
+	All simulated $R^2$ and $t-stats$ distributions as in Fig4 and Fig5.	
+\end{enumerate}
+
+\section{Out of Sample Analysis}
+This section describe the logistics of the OOS analysis, including the data, the code and subsequent plotting or interpretation procedures. Similar files and descriptions can be found on Project's Github repository. 
+\subsection{Data for OOS Analysis}
+The required data for OOS analysis are the same for each model. They are saved in the shareddir on the research grid (\textbf{energy\_drivers/2020-11-16/data}).
+\begin{enumerate}
+	\item[--] \textbf{transformed\_data\_prices\_v14.dta} \\
+	LHS and RHS Series for price variables, obtained from data processing section and in sample section.
+	\item[--] \textbf{transformed\_data\_physical\_v14.dta} \\
+	LHS and RHS Series for physical variables, obtained from data processing section and in sample section.
+	\item[--] \textbf{SDFgrowing\_fut\_tues.xls} \\
+	Data for SDF calculated using growing window, only Tuesday value are recorded, following the calculation convention of physical data
+	\item[--] \textbf{SDF756rolling\_fut\_tues.xls} \\
+	Data for SDF calculated using fixed window (756 days), only Tuesday value are recorded, following the calculation convention of physical data
+	\item[--] \textbf{SDFgrowing\_fut\_thurs.xls} \\
+	Data for SDF calculated using growing window, only Tuesday value are recorded, following the calculation convention of price data
+	\item[--] \textbf{SDF756rolling\_fut\_thurs.xls} \\
+	Data for SDF calculated using fixed window (756 days), only Tuesday value are recorded, following the calculation convention of price data
+\end{enumerate}
+Note that \textbf{OOSfuncs.py} contains all the functions in out of sample analysis, and the function $data\_set$ takes in a LHS variable and return the merged data ready for further usage.
+
+\subsection{OOS Test of the Forward Selection Model}
+This analysis takes the selected models from the in-sample forward selection model and test the out-of-sample performance of them. For a LHS variable, the RHS specification will be the lagged LHS variable plus 2 or 7 forward selection resulted variables. We conduct weekly OOS test by performing algorithm as follows: on week $t$, take all samples from $t$-5 yr to $t$, train the model with Lasso regression using a 10 fold cross validated penalty taken from [0,2]. Then use the coefficients and data from week $t$ to predict 8-week ahead ($t+8$).\\
+
+Here (also in subsequent sections), to address the forward looking issue, for 8-week analysis, the last LHS variable would be from week $t$, and is the return from $t-8$ to $t$, and the last RHS variable would be from week $t-8$, the return from $t-12$ to $t-8$ (all RHS variables are 4-week returns). The first LHS and RHS variables are taken to ensure the start date of return calculation is within the 5-year window. \\
+
+To run the analysis, refer to codes as follows (well commented):
+\begin{enumerate}
+	\item[--] \textbf{run\_Forward\_Model.sh}
+	\item[--] \textbf{Forward\_Model.py}
+\end{enumerate}
+
+Note that all the selected specifications are manually collected from in sample results, and saved in the main function in Forward\_Model.py.\\
+
+The outputs are excel files recording the RMSE of each constant model and forward selection model. Please manually create summary table as Table V in the paper (the stats are in place, further formatting is needed).
+
+\subsection{Parsimonious Lasso Model}
+This section addresses the Lasso updating OOS Model (Following description can also be found in Table VI in the paper). \\
+
+The model selects n-n predictor pairs weekly (n=1 or 2 according to specification) from the base and text variable pool separately with the top n R2 in the univariate OLS regression based on a 5-year lookback window. The univariate OLS regression takes the predicted variable as LHS and a lagged base or text candidate as RHS. There are two benchmark models: the Constant model and the Baseline model, with specification: 0 $base$ + 0 $text$  or n $base$ + 0 $text$  respectively. Alternative models are the Text model and the Full model, with specifications: 0 $base$ + n $text$  or n $base$ + n $text$. The model then update the coefficients of the predictors with Lasso regression on a rolling 5-year lookback window and predicts eight-week ahead using the last observation in the window. We then compare the MSE's between models to determine the effectiveness.\\
+
+To run the analysis, refer to codes as follows (well commented):
+\begin{enumerate}
+	\item[--] \textbf{run\_Lasso\_Model.sh}
+	\item[--] \textbf{Lasso\_Model.py}
+	\item[--] \textbf{run\_OLS\_Model.sh}
+	\item[--] \textbf{OLS\_Model.py}
+\end{enumerate}
+
+Note that here the file $OLS\_Model.py$ generates the time series recording  the selected variables at each week. This will be used to generate Figure A.2a-d in the paper. Other results are similar as in OOS Test of Forward Selection Model section. \\
+
+To plot the time series, run the following codes:
+\begin{enumerate}
+	\item[--] \textbf{1-1 plot.py}\\
+	For one-and-one model. Please be careful of the directory settings in the code and make sure to use the correct data.
+	\item[--] \textbf{2-2 plot.py}\\
+	For two-and-two model. Please be careful of the directory settings in the code and make sure to use the correct data.
+\end{enumerate}
+
+
+\subsection{Fixed Model}
+This section addresses the Fixed Model (Following description can also be found in Table VII in the paper). \\
+
+The fixed model selects a pair of variable and sticks to them through the whole sample. The predictions are made weekly by updating the coefficients using a rolling 5-year lookback Lasso regression, and the MSE is calculated once all forecasts are done. The MSE ratios divides the MSE of the fixed model by that of the constant model, which predicts weekly as the average of predicted value in a rolling 5-year lookback window. A model is considered advantageous if the MSE ratio is less than 1. For each predicted variable, there are 741 fixed models at disposal (all the non-overlapping combinations of the 39 variables with 19 base and 20 text ones).\\
+
+To run the analysis, refer to codes as follows (well commented):
+\begin{enumerate}
+	\item[--] \textbf{run\_Fixed\_Model\_One.sh}
+	\item[--] \textbf{run\_Fixed\_Model\_One.sh}
+	\item[--] \textbf{run\_Fixed\_Model\_One.sh}
+	\item[--] \textbf{Fixed\_Model\_One.py}
+	\item[--] \textbf{Fixed\_Model\_Two.py}
+	\item[--] \textbf{Fixed\_Model\_Three.py}
+\end{enumerate}
+note that here, we separate the models into text + text, base + base and base + text, because there are different time issues with different variables. Please refer to the comments in codes for details. \\
+
+The results are .csv files recording the MSE's of each specification ((LHS, RHS) pair), and will be utilized in later process to plot the matrix as Figure 5 in the paper (as of \today\ version). To plot the matrix, run codes as follows:
+\begin{enumerate}
+	\item[--] \textbf{best\_oneandone.py}\\
+	This selects the models that beats constant models for each LHS variables, and calculate the MSE ratios.
+	\item[--] \textbf{matrix\_plot.py}\\
+	This code plot the matrix as Figure 5 in the paper. The code is reasonably commented.
+
+\end{enumerate}
+
+\subsection{Stability Shrinkage Model}
+This section addresses the Stability Shrinkage Model (Following description can also be found in Table A.VI in the online supplementary materials). \\
+
+For each week, the model takes stable predictor pairs from 741 candidate models which consists of all the possible combinations of 2 in the whole variable pool (19 base and 20 text variables make 39 in total), and predicts 8 weeks ahead by updating the coefficients based on a Lasso regression on a rolling 5-year lookback window. A pair of predictors is considered stable if the weekly 5-year lookback Lasso updated coefficients of the pairing model stay nonzero or never switch signs in a checking window. Here, 1-, 2-, 3-, 4-, and 5-year checking window are examined and reported. The constant model takes the average value of a predicted variable in the rolling 5-year lookback window as the prediction. The MSE of a stable or constant model is calculated once all the predictions are in place, and the MSE ratios are produced by dividing the MSE of a stable model by that of the constant model. The n-year Stable Model predicts by taking average of the predictions of the stable models, and skip if none of them exists. The Constant Filled Model forecasts in the same manner but fills in the prediction of constant model where the stable pairs are missing. The Out-of-sample $R^2$ of both models are reported and Boldface indicates better performance than the constant model. \\
+
+To perform the analysis, run the files in following order:
+\begin{enumerate}
+	\item[--] \textbf{shuffle\_model\_groups.py}\\
+	 This file separate all possible combinations of the 39 (20 text + 19 baseline) RHS variables into 30 groups.\\
+    The separation will speed up the next step by leveraging the parallelization techniques.
+    \item[--] \textbf{run\_generate\_model\_coefs\_v1.0.sh}\\
+    This file kicks off 30 generate\_model\_coefs\_v1.0.py in parallel, which calculate all the Lasso 5yr lookback coefficients.\\
+    The results are saved in 30 separated .p files for further usage.
+     \item[--] \textbf{run\_select\_models.sh}\\
+         This file runs select\_models.py, which aggregates all the 30 .p files above and selects the ones that qualify as a stable or nonzero model.\\
+    The outputs are dictionaries with LHS vars as keys, with some dictionaries as values. \\
+    These dictionaries have weeks as keys and another layer of dict storing all the selected models and their coefs as values.
+     \item[--] \textbf{run\_Time\_varying\_model.sh}\\
+         This file calls Time\_varying\_model.py, which performs prediction weekly using the selected models and their coefficients. Constant models of the same period are calculated as well.\\
+    Two models are tested here: 1. the plain time varying model, 2. time varying model filled with the constant prediction if there isn't a valid prediction candidate. \\
+    The reported results are presented in an excel file with the RMSE ratios of the constant and time varying model.
+\end{enumerate}
+
+Please refer to the comments in the codes for more implementation details.
+
+
+\end{document}
